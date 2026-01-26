@@ -21,6 +21,8 @@ E2E_DIR=${E2E_DIR:-/tmp/slipstream-e2e}
 BUILD_IMAGE=${BUILD_IMAGE:-true}
 BUILD_CLIENT=${BUILD_CLIENT:-true}
 BUILD_SSLOCAL=${BUILD_SSLOCAL:-true}
+SHADOWSOCKS_VERSION=${SHADOWSOCKS_VERSION:-1.21.2}
+SHADOWSOCKS_ARCH=${SHADOWSOCKS_ARCH:-}
 SKIP_INTERNET_TEST=${SKIP_INTERNET_TEST:-false}
 SKIP_DNS_CHECK=${SKIP_DNS_CHECK:-true}
 FORCE_RECONFIGURE=${FORCE_RECONFIGURE:-true}
@@ -41,7 +43,23 @@ trap cleanup EXIT
 command -v docker >/dev/null 2>&1 || fail "docker not found"
 command -v rg >/dev/null 2>&1 || fail "rg (ripgrep) not found"
 command -v git >/dev/null 2>&1 || fail "git not found"
+command -v curl >/dev/null 2>&1 || fail "curl not found"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found"
+[ "$(uname -s)" = "Linux" ] || fail "This script requires Linux host networking (docker --network=host)"
+[ -d "$ROOT_DIR/slipstream-rust" ] || fail "slipstream-rust submodule missing; run: git submodule update --init --recursive"
+
+detect_ss_arch() {
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) echo "x86_64-unknown-linux-musl" ;;
+    aarch64|arm64) echo "aarch64-unknown-linux-musl" ;;
+    i686|i386) echo "i686-unknown-linux-musl" ;;
+    armv7l|armv7|armhf) echo "armv7-unknown-linux-musleabihf" ;;
+    armv6l|arm) echo "arm-unknown-linux-musleabihf" ;;
+    *) return 1 ;;
+  esac
+}
 [ "$(uname -s)" = "Linux" ] || fail "This script requires Linux host networking (docker --network=host)"
 [ -d "$ROOT_DIR/slipstream-rust" ] || fail "slipstream-rust submodule missing; run: git submodule update --init --recursive"
 
@@ -123,15 +141,20 @@ if [ "$BUILD_CLIENT" = "true" ] && [ ! -x "$E2E_DIR/bin/slipstream-client" ]; th
 fi
 
 if [ "$BUILD_SSLOCAL" = "true" ] && [ ! -x "$E2E_DIR/bin/sslocal" ]; then
-  log "Building sslocal"
-  rm -rf "$E2E_DIR/shadowsocks-rust"
-  git clone --depth 1 --branch v1.21.2 https://github.com/shadowsocks/shadowsocks-rust.git "$E2E_DIR/shadowsocks-rust"
-  docker run --rm \
-    -v "$E2E_DIR/shadowsocks-rust:/work" \
-    -v "$E2E_DIR/bin:/out" \
-    -w /work \
-    "$RUST_IMAGE" \
-    bash -lc 'export PATH=/usr/local/cargo/bin:$PATH; apt-get update && apt-get install -y pkg-config libssl-dev git; cargo build --release --bin sslocal; cp target/release/sslocal /out/'
+  log "Downloading sslocal binary"
+  if [ -z "$SHADOWSOCKS_ARCH" ]; then
+    SHADOWSOCKS_ARCH="$(detect_ss_arch)" || fail "Unsupported architecture for sslocal download"
+  fi
+  SS_VERSION="${SHADOWSOCKS_VERSION#v}"
+  SS_FILE="shadowsocks-v${SS_VERSION}.${SHADOWSOCKS_ARCH}.tar.xz"
+  SS_URL="https://github.com/shadowsocks/shadowsocks-rust/releases/download/v${SS_VERSION}/${SS_FILE}"
+  curl -fsSL "$SS_URL" -o "$E2E_DIR/${SS_FILE}" || fail "Failed to download sslocal"
+  curl -fsSL "${SS_URL}.sha256" -o "$E2E_DIR/${SS_FILE}.sha256" || fail "Failed to download sslocal checksum"
+  (cd "$E2E_DIR" && sha256sum -c "${SS_FILE}.sha256") || fail "sslocal checksum failed"
+  tar -xJf "$E2E_DIR/${SS_FILE}" -C "$E2E_DIR"
+  SSLOCAL_BIN=$(find "$E2E_DIR" -type f -name sslocal -perm -111 | head -n 1)
+  [ -n "$SSLOCAL_BIN" ] || fail "sslocal not found in archive"
+  cp "$SSLOCAL_BIN" "$E2E_DIR/bin/sslocal"
 fi
 
 [ -x "$E2E_DIR/bin/slipstream-client" ] || fail "slipstream-client missing"
