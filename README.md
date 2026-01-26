@@ -234,7 +234,7 @@ docker volume rm slipstream-data
 The Dockerfile uses a multi-stage build:
 
 1. **Stage 1**: Builds slipstream-server from the local submodule
-2. **Stage 2**: Builds shadowsocks-rust v1.21.2
+2. **Stage 2**: Downloads the shadowsocks-rust v1.21.2 release binary for your architecture
 3. **Stage 3**: Creates a minimal runtime image
 
 Builds use BuildKit cache mounts; if you see an error about `--mount`, enable BuildKit (`DOCKER_BUILDKIT=1`).
@@ -249,7 +249,7 @@ DOCKER_BUILDKIT=1 docker build -t slipstream-ss .
 # Optional: override toolchain or shadowsocks version
 DOCKER_BUILDKIT=1 docker build -t slipstream-ss \
   --build-arg RUST_IMAGE=rust:1.93-bookworm \
-  --build-arg SHADOWSOCKS_VERSION=v1.21.2 .
+  --build-arg SHADOWSOCKS_VERSION=1.21.2 .
 ```
 
 ## License
