@@ -21,6 +21,8 @@ E2E_DIR=${E2E_DIR:-/tmp/slipstream-e2e}
 BUILD_IMAGE=${BUILD_IMAGE:-true}
 BUILD_CLIENT=${BUILD_CLIENT:-true}
 BUILD_SSLOCAL=${BUILD_SSLOCAL:-true}
+SLIPSTREAM_VERSION=${SLIPSTREAM_VERSION:-0.1.0-certsha}
+SLIPSTREAM_ARCH=${SLIPSTREAM_ARCH:-}
 SHADOWSOCKS_VERSION=${SHADOWSOCKS_VERSION:-1.21.2}
 SHADOWSOCKS_ARCH=${SHADOWSOCKS_ARCH:-}
 SKIP_INTERNET_TEST=${SKIP_INTERNET_TEST:-false}
@@ -42,11 +44,9 @@ trap cleanup EXIT
 
 command -v docker >/dev/null 2>&1 || fail "docker not found"
 command -v rg >/dev/null 2>&1 || fail "rg (ripgrep) not found"
-command -v git >/dev/null 2>&1 || fail "git not found"
 command -v curl >/dev/null 2>&1 || fail "curl not found"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found"
 [ "$(uname -s)" = "Linux" ] || fail "This script requires Linux host networking (docker --network=host)"
-[ -d "$ROOT_DIR/slipstream-rust" ] || fail "slipstream-rust submodule missing; run: git submodule update --init --recursive"
 
 detect_ss_arch() {
   local arch
@@ -60,8 +60,19 @@ detect_ss_arch() {
     *) return 1 ;;
   esac
 }
-[ "$(uname -s)" = "Linux" ] || fail "This script requires Linux host networking (docker --network=host)"
-[ -d "$ROOT_DIR/slipstream-rust" ] || fail "slipstream-rust submodule missing; run: git submodule update --init --recursive"
+
+detect_slipstream_arch() {
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) echo "x86_64-unknown-linux-musl" ;;
+    aarch64|arm64) echo "aarch64-unknown-linux-musl" ;;
+    i686|i386) echo "i686-unknown-linux-musl" ;;
+    armv7l|armv7|armhf) echo "armv7-unknown-linux-musleabihf" ;;
+    armv6l|arm) echo "arm-unknown-linux-musleabihf" ;;
+    *) return 1 ;;
+  esac
+}
 
 check_tcp_port_free() {
   local port=$1
@@ -131,13 +142,20 @@ fi
 mkdir -p "$E2E_DIR/bin"
 
 if [ "$BUILD_CLIENT" = "true" ] && [ ! -x "$E2E_DIR/bin/slipstream-client" ]; then
-  log "Building slipstream-client"
-  docker run --rm \
-    -v "$ROOT_DIR/slipstream-rust:/work" \
-    -v "$E2E_DIR/bin:/out" \
-    -w /work \
-    "$RUST_IMAGE" \
-    bash -lc 'export PATH=/usr/local/cargo/bin:$PATH; apt-get update && apt-get install -y cmake pkg-config libssl-dev git clang; cargo build -p slipstream-client --release; cp target/release/slipstream-client /out/'
+  log "Downloading slipstream-client binary"
+  if [ -z "$SLIPSTREAM_ARCH" ]; then
+    SLIPSTREAM_ARCH="$(detect_slipstream_arch)" || fail "Unsupported architecture for slipstream-client download"
+  fi
+  SLIP_VERSION="${SLIPSTREAM_VERSION#v}"
+  SLIP_FILE="slipstream-v${SLIP_VERSION}.${SLIPSTREAM_ARCH}.tar.xz"
+  SLIP_URL="https://github.com/dalisyron/slipstream-rust/releases/download/v${SLIP_VERSION}/${SLIP_FILE}"
+  curl -fsSL "$SLIP_URL" -o "$E2E_DIR/${SLIP_FILE}" || fail "Failed to download slipstream-client"
+  curl -fsSL "${SLIP_URL}.sha256" -o "$E2E_DIR/${SLIP_FILE}.sha256" || fail "Failed to download slipstream checksum"
+  (cd "$E2E_DIR" && sha256sum -c "${SLIP_FILE}.sha256") || fail "slipstream checksum failed"
+  tar -xJf "$E2E_DIR/${SLIP_FILE}" -C "$E2E_DIR"
+  SLIP_BIN=$(find "$E2E_DIR" -type f -name slipstream-client -perm -111 | head -n 1)
+  [ -n "$SLIP_BIN" ] || fail "slipstream-client not found in archive"
+  cp "$SLIP_BIN" "$E2E_DIR/bin/slipstream-client"
 fi
 
 if [ "$BUILD_SSLOCAL" = "true" ] && [ ! -x "$E2E_DIR/bin/sslocal" ]; then

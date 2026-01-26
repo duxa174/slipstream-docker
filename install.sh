@@ -113,18 +113,7 @@ detect_repo_dir() {
   if [ -d "$REPO_DIR/.git" ]; then
     log "Using existing repo at $REPO_DIR"
   else
-    git clone --recurse-submodules "$REPO_URL" "$REPO_DIR"
-  fi
-}
-
-ensure_submodule() {
-  if [ ! -f "$REPO_DIR/slipstream-rust/Cargo.toml" ]; then
-    warn "slipstream-rust submodule is missing."
-    if prompt_yn "Initialize submodules now?" "Y"; then
-      git -C "$REPO_DIR" submodule update --init --recursive
-    else
-      die "slipstream-rust submodule is required to build the container."
-    fi
+    git clone "$REPO_URL" "$REPO_DIR"
   fi
 }
 
@@ -412,7 +401,6 @@ main() {
 
   detect_repo_dir
   cd "$REPO_DIR"
-  ensure_submodule
 
   detect_os
 
