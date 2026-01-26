@@ -476,7 +476,7 @@ EOF
 
   # Check if config already exists in the volume
   local config_exists=false
-  if docker run --rm -v "$DATA_VOLUME":/data "$IMAGE_NAME" test -f /data/config/settings.env 2>/dev/null; then
+  if docker run --rm --entrypoint /bin/sh -v "$DATA_VOLUME":/data "$IMAGE_NAME" -c "test -f /data/config/settings.env" >/dev/null 2>&1; then
     config_exists=true
   fi
 
@@ -503,7 +503,7 @@ EOF
   fi
 
   # Check if setup completed successfully (config file exists)
-  if ! docker run --rm -v "$DATA_VOLUME":/data "$IMAGE_NAME" test -f /data/config/settings.env 2>/dev/null; then
+  if ! docker run --rm --entrypoint /bin/sh -v "$DATA_VOLUME":/data "$IMAGE_NAME" -c "test -f /data/config/settings.env" >/dev/null 2>&1; then
     warn "Setup did not complete. No configuration saved."
     return
   fi
