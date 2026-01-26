@@ -1,0 +1,19 @@
+services:
+  slipstream-ss:
+    build: .
+    stdin_open: true   # -i for interactive input
+    tty: true          # -t for terminal (interactive wizard)
+    ports:
+      - "53:53/udp"
+    volumes:
+      - slipstream-data:/data
+    restart: unless-stopped
+    # Optional: set env vars for non-interactive mode
+    # environment:
+    #   - DOMAIN=your-domain.xyz
+    #   - MODE=recursive
+    #   - RESOLVER=8.8.8.8
+    #   - NON_INTERACTIVE=true
+
+volumes:
+  slipstream-data:

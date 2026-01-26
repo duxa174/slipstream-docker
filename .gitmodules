@@ -1,0 +1,4 @@
+[submodule "slipstream-rust"]
+	path = slipstream-rust
+	url = https://github.com/dalisyron/slipstream-rust.git
+	branch = cert-sha256-pinning
