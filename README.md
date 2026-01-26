@@ -9,8 +9,8 @@ A Docker container that bundles Shadowsocks server and Slipstream server into a 
 git clone --recurse-submodules https://github.com/dalisyron/slipstream-docker
 cd slipstream-docker
 
-# Build the container
-docker build -t slipstream-ss .
+# Build the container (BuildKit required for cache mounts)
+DOCKER_BUILDKIT=1 docker build -t slipstream-ss .
 
 # Run interactively (wizard guides you through setup)
 docker run -it -p 53:53/udp -v slipstream-data:/data slipstream-ss
@@ -74,6 +74,12 @@ docker run -d --name slipstream-ss \
 | `SERVER_IP` | If auth | - | Server IP for authoritative mode |
 | `SS_PASSWORD` | No | (auto-generated) | Shadowsocks password |
 | `SS_METHOD` | No | `chacha20-ietf-poly1305` | Encryption method |
+| `CERT_PATH` | No | `/data/config/cert.pem` | TLS cert path for slipstream-server (auto-generated if missing) |
+| `KEY_PATH` | No | `/data/config/key.pem` | TLS key path for slipstream-server (auto-generated if missing) |
+| `RESET_SEED_PATH` | No | `/data/config/reset-seed` | Persisted stateless reset seed (auto-generated if missing) |
+| `EXPECTED_PUBLIC_IP` | No | - | Used for DNS preflight (recursive mode) to warn if domain resolves elsewhere |
+| `SKIP_DNS_CHECK` | No | `false` | Skip DNS preflight in recursive mode |
+| `FORCE_RECONFIGURE` | No | `false` | Ignore existing `/data/config/settings.env` and re-run setup |
 | `NON_INTERACTIVE` | No | `false` | Set `true` to skip all prompts |
 
 *Required in non-interactive mode; prompted in interactive mode
@@ -86,6 +92,7 @@ Clients query a public DNS resolver (e.g., 8.8.8.8) which resolves your domain. 
 - Works behind most firewalls
 - More stealthy
 - Requires your domain's DNS records to point to the server
+> Tip: set `EXPECTED_PUBLIC_IP` to your server IP to get a DNS preflight warning if the domain doesn't resolve correctly (or set `SKIP_DNS_CHECK=true` to disable).
 
 ### Authoritative/Direct Mode
 
@@ -100,8 +107,8 @@ Clients connect directly to your server's IP address. This mode:
 ### First-time Setup (Interactive)
 
 ```bash
-# Build
-docker build -t slipstream-ss .
+# Build (BuildKit required for cache mounts)
+DOCKER_BUILDKIT=1 docker build -t slipstream-ss .
 
 # Run interactively
 docker run -it --name slipstream-ss \
@@ -123,11 +130,26 @@ docker exec slipstream-ss cat /data/config/client-config.txt
 ### Using Docker Compose
 
 ```bash
-# Interactive mode
-docker compose run --rm slipstream-ss
+# Interactive mode (wizard)
+docker compose --profile interactive up
 
-# Or build and run in background (requires env vars)
-docker compose up -d
+# Non-interactive mode (uses .env)
+cp .env.example .env
+$EDITOR .env
+docker compose --profile non-interactive up -d
+```
+
+You can override the host UDP port with `HOST_DNS_PORT` in `.env` (for example, `5353`).
+If `docker compose` is unavailable, install the Compose plugin or run the container directly (`docker run ...`).
+
+### Makefile Helpers
+
+```bash
+make build
+make run              # interactive wizard
+make run-noninteractive
+make logs
+make ssurl
 ```
 
 ### Automated Deployment
@@ -215,12 +237,19 @@ The Dockerfile uses a multi-stage build:
 2. **Stage 2**: Builds shadowsocks-rust v1.21.2
 3. **Stage 3**: Creates a minimal runtime image
 
+Builds use BuildKit cache mounts; if you see an error about `--mount`, enable BuildKit (`DOCKER_BUILDKIT=1`).
+
 ```bash
 # Ensure submodules are initialized
 git submodule update --init --recursive
 
-# Build
-docker build -t slipstream-ss .
+# Build (BuildKit required for cache mounts)
+DOCKER_BUILDKIT=1 docker build -t slipstream-ss .
+
+# Optional: override toolchain or shadowsocks version
+DOCKER_BUILDKIT=1 docker build -t slipstream-ss \
+  --build-arg RUST_IMAGE=rust:1.93-bookworm \
+  --build-arg SHADOWSOCKS_VERSION=v1.21.2 .
 ```
 
 ## License

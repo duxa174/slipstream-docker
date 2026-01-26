@@ -13,6 +13,11 @@ DNS_PORT="53"
 
 # Shadowsocks config file path
 SS_CONFIG="/data/config/ss-config.json"
+# Slipstream TLS material paths (auto-generated if missing)
+CERT_PATH="${CERT_PATH:-/data/config/cert.pem}"
+KEY_PATH="${KEY_PATH:-/data/config/key.pem}"
+# Slipstream reset seed path (auto-generated if missing)
+RESET_SEED_PATH="${RESET_SEED_PATH:-/data/config/reset-seed}"
 
 # Check if running in non-interactive mode
 is_non_interactive() {
@@ -32,10 +37,68 @@ create_ss_config() {
 EOF
 }
 
+# Ensure TLS cert/key exist for slipstream-server
+ensure_cert_key() {
+    if [ ! -f "$CERT_PATH" ] || [ ! -f "$KEY_PATH" ]; then
+        print_info "Generating self-signed TLS certificate..."
+        mkdir -p "$(dirname "$CERT_PATH")"
+        openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$KEY_PATH" \
+            -out "$CERT_PATH" \
+            -days 3650 \
+            -subj "/CN=slipstream" >/dev/null 2>&1
+        chmod 600 "$KEY_PATH" || true
+    fi
+}
+
+# Ensure reset seed exists for slipstream-server
+ensure_reset_seed() {
+    if [ ! -f "$RESET_SEED_PATH" ]; then
+        print_info "Generating reset seed..."
+        mkdir -p "$(dirname "$RESET_SEED_PATH")"
+        openssl rand -hex 16 > "$RESET_SEED_PATH"
+        chmod 600 "$RESET_SEED_PATH" || true
+    fi
+}
+
+# Optional DNS preflight check for recursive mode
+maybe_dns_check() {
+    if [ "$MODE" != "recursive" ]; then
+        return 0
+    fi
+    if [ "${SKIP_DNS_CHECK:-false}" = "true" ]; then
+        print_info "Skipping DNS preflight check (SKIP_DNS_CHECK=true)"
+        return 0
+    fi
+    if ! command -v getent >/dev/null 2>&1; then
+        print_warning "Skipping DNS preflight check (getent not available)"
+        return 0
+    fi
+    local resolved
+    resolved=$(getent ahosts "$DOMAIN" | awk '{print $1}' | sort -u | tr '\n' ' ')
+    if [ -z "$resolved" ]; then
+        print_warning "DNS preflight: $DOMAIN does not resolve yet"
+        return 0
+    fi
+    if [ -n "${EXPECTED_PUBLIC_IP:-}" ]; then
+        if echo "$resolved" | grep -q "$EXPECTED_PUBLIC_IP"; then
+            print_success "DNS preflight: $DOMAIN resolves to expected IP $EXPECTED_PUBLIC_IP"
+        else
+            print_warning "DNS preflight: $DOMAIN resolves to $resolved (expected $EXPECTED_PUBLIC_IP)"
+        fi
+    else
+        print_info "DNS preflight: $DOMAIN resolves to $resolved"
+    fi
+}
+
 # Get cert-sha256 from slipstream-server
 get_cert_sha256() {
     local output
-    output=$(/app/slipstream-server --print-ss-plugin 2>&1 || true)
+    output=$(/app/slipstream-server \
+        --domain "$DOMAIN" \
+        --cert "$CERT_PATH" \
+        --key "$KEY_PATH" \
+        --print-ss-plugin 2>&1 || true)
     CERT_SHA256=$(echo "$output" | grep -oP 'cert-sha256=\K[a-fA-F0-9]+' | head -1)
 
     if [ -z "$CERT_SHA256" ]; then
@@ -209,7 +272,9 @@ main() {
     if config_exists; then
         print_info "Found existing configuration at $CONFIG_FILE"
 
-        if is_non_interactive; then
+        if [ "${FORCE_RECONFIGURE:-false}" = "true" ]; then
+            print_warning "FORCE_RECONFIGURE=true; ignoring existing configuration"
+        elif is_non_interactive; then
             print_info "Using existing configuration..."
             load_config
         else
@@ -221,7 +286,9 @@ main() {
                 run_wizard
             fi
         fi
-    else
+    fi
+
+    if ! config_exists || [ "${FORCE_RECONFIGURE:-false}" = "true" ]; then
         if is_non_interactive; then
             run_non_interactive
         else
@@ -229,14 +296,21 @@ main() {
         fi
     fi
 
+    # Optional DNS check for recursive mode
+    maybe_dns_check
+
     echo ""
     print_info "Starting services..."
     echo ""
 
     # Get cert-sha256 from slipstream-server
     print_info "Retrieving certificate fingerprint..."
+    ensure_cert_key
     get_cert_sha256
     print_success "Cert SHA256: $CERT_SHA256"
+
+    # Ensure reset seed exists for server restarts
+    ensure_reset_seed
 
     # Save configuration
     save_config
@@ -269,11 +343,10 @@ main() {
     print_client_config "$SS_URL" "$PLUGIN_OPTS"
 
     # Build slipstream-server arguments
-    SLIPSTREAM_ARGS="--upstream 127.0.0.1:$SS_PORT"
-
-    if [ "$MODE" = "authoritative" ]; then
-        SLIPSTREAM_ARGS="$SLIPSTREAM_ARGS --authoritative"
-    fi
+    SLIPSTREAM_ARGS="--target-address 127.0.0.1:$SS_PORT"
+    SLIPSTREAM_ARGS="$SLIPSTREAM_ARGS --domain $DOMAIN --cert $CERT_PATH --key $KEY_PATH"
+    SLIPSTREAM_ARGS="$SLIPSTREAM_ARGS --dns-listen-port $DNS_PORT"
+    SLIPSTREAM_ARGS="$SLIPSTREAM_ARGS --reset-seed $RESET_SEED_PATH"
 
     # Start slipstream-server in foreground
     print_info "Starting Slipstream server on 0.0.0.0:$DNS_PORT/udp..."
