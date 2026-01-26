@@ -13,6 +13,10 @@ log() { printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+has_tty() {
+  [ -t 0 ] && [ -t 1 ]
+}
+
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
     die "This installer must be run as root. Example: sudo bash install.sh"
@@ -341,6 +345,19 @@ build_image() {
 }
 
 run_interactive_container() {
+  if ! has_tty; then
+    warn "No TTY detected for docker run; interactive setup requires a TTY."
+    cat <<EOF
+Re-run from an interactive shell, for example:
+  ssh -t user@host "curl -fsSL https://raw.githubusercontent.com/dalisyron/slipstream-docker/main/install.sh | sudo bash"
+
+Or run locally with:
+  sudo ./install.sh
+
+If you prefer non-interactive setup, re-run and choose 'No' when prompted.
+EOF
+    return
+  fi
   if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     warn "Container '$CONTAINER_NAME' is already running."
     printf 'You can view logs with: docker logs -f %s\n' "$CONTAINER_NAME"
