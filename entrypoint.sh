@@ -320,8 +320,12 @@ main() {
     # Save configuration
     save_config
 
-    # If setup-only mode, exit after saving config
+    # If setup-only mode, emit client config and exit after saving config
     if is_setup_only; then
+        PLUGIN_OPTS=$(build_plugin_opts)
+        SS_URL=$(generate_ss_url "$SS_METHOD" "$SS_PASSWORD" "$DOMAIN" "$DNS_PORT" "$PLUGIN_OPTS" "Slipstream-$DOMAIN")
+        save_client_config "$SS_URL" "$PLUGIN_OPTS"
+        print_client_config "$SS_URL" "$PLUGIN_OPTS"
         print_success "Configuration saved. Container will now exit."
         print_info "Restart the container to run the server."
         exit 0
