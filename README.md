@@ -5,8 +5,8 @@ A Docker container that bundles Shadowsocks server and Slipstream server into a 
 ## Quick Start
 
 ```bash
-# Clone
-git clone https://github.com/dalisyron/slipstream-docker
+# Clone with submodules
+git clone --recurse-submodules https://github.com/dalisyron/slipstream-docker
 cd slipstream-docker
 
 # Build the container (BuildKit required for cache mounts)
@@ -233,19 +233,22 @@ docker volume rm slipstream-data
 
 The Dockerfile uses a multi-stage build:
 
-1. **Stage 1**: Downloads the slipstream-server release binary for your architecture
+1. **Stage 1**: Builds slipstream-server from the local submodule
 2. **Stage 2**: Downloads the shadowsocks-rust v1.21.2 release binary for your architecture
 3. **Stage 3**: Creates a minimal runtime image
 
 Builds use BuildKit cache mounts; if you see an error about `--mount`, enable BuildKit (`DOCKER_BUILDKIT=1`).
 
 ```bash
+# Ensure submodules are initialized
+git submodule update --init --recursive
+
 # Build (BuildKit required for cache mounts)
 DOCKER_BUILDKIT=1 docker build -t slipstream-ss .
 
-# Optional: override slipstream/shadowsocks versions
+# Optional: override toolchain or shadowsocks version
 DOCKER_BUILDKIT=1 docker build -t slipstream-ss \
-  --build-arg SLIPSTREAM_VERSION=0.1.0-certsha \
+  --build-arg RUST_IMAGE=rust:1.93-bookworm \
   --build-arg SHADOWSOCKS_VERSION=1.21.2 .
 ```
 
