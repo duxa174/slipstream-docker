@@ -81,6 +81,7 @@ docker run -d --name slipstream-ss \
 | `SKIP_DNS_CHECK` | No | `false` | Skip DNS preflight in recursive mode |
 | `FORCE_RECONFIGURE` | No | `false` | Ignore existing `/data/config/settings.env` and re-run setup |
 | `NON_INTERACTIVE` | No | `false` | Set `true` to skip all prompts |
+| `SETUP_ONLY` | No | `false` | Exit after saving config (used by install.sh for setup-then-detach flow) |
 
 *Required in non-interactive mode; prompted in interactive mode
 

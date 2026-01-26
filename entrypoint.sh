@@ -24,6 +24,11 @@ is_non_interactive() {
     [ "${NON_INTERACTIVE:-false}" = "true" ] || [ ! -t 0 ]
 }
 
+# Check if running in setup-only mode (exit after saving config)
+is_setup_only() {
+    [ "${SETUP_ONLY:-false}" = "true" ]
+}
+
 # Create Shadowsocks config file
 create_ss_config() {
     mkdir -p "$(dirname "$SS_CONFIG")"
@@ -314,6 +319,13 @@ main() {
 
     # Save configuration
     save_config
+
+    # If setup-only mode, exit after saving config
+    if is_setup_only; then
+        print_success "Configuration saved. Container will now exit."
+        print_info "Restart the container to run the server."
+        exit 0
+    fi
 
     # Create Shadowsocks config
     print_info "Creating Shadowsocks configuration..."

@@ -13,6 +13,10 @@ log() { printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+tty_device_available() {
+  [ -r /dev/tty ] && [ -w /dev/tty ]
+}
+
 has_tty() {
   [ -t 0 ] && [ -t 1 ]
 }
@@ -401,8 +405,40 @@ build_image() {
   DOCKER_BUILDKIT=1 docker build -t "$IMAGE_NAME" "$REPO_DIR"
 }
 
+start_container_detached() {
+  log "Starting container in background..."
+  docker run -d --name "$CONTAINER_NAME" \
+    -p "$HOST_DNS_PORT":53/udp \
+    -v "$DATA_VOLUME":/data \
+    --restart unless-stopped \
+    -e NON_INTERACTIVE=true \
+    "$IMAGE_NAME" >/dev/null
+
+  # Wait for container to be ready
+  sleep 2
+  if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    log "Container started successfully."
+    printf '\n'
+    printf 'The server is now running in the background.\n'
+    printf '\n'
+    printf 'Useful commands:\n'
+    printf '  View logs:        docker logs -f %s\n' "$CONTAINER_NAME"
+    printf '  View config:      docker exec %s cat /data/config/client-config.txt\n' "$CONTAINER_NAME"
+    printf '  Stop server:      docker stop %s\n' "$CONTAINER_NAME"
+    printf '  Start server:     docker start %s\n' "$CONTAINER_NAME"
+    printf '\n'
+  else
+    warn "Container may have failed to start. Check logs with: docker logs $CONTAINER_NAME"
+  fi
+}
+
 run_interactive_container() {
-  if ! has_tty; then
+  local redirect_tty=false
+  if has_tty; then
+    redirect_tty=false
+  elif tty_device_available; then
+    redirect_tty=true
+  else
     warn "No TTY detected for docker run; interactive setup requires a TTY."
     cat <<EOF
 Re-run from an interactive shell, for example:
@@ -415,28 +451,65 @@ If you prefer non-interactive setup, re-run and choose 'No' when prompted.
 EOF
     return
   fi
+
+  # Check if container is already running
   if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     warn "Container '$CONTAINER_NAME' is already running."
     printf 'You can view logs with: docker logs -f %s\n' "$CONTAINER_NAME"
     return
   fi
+
+  # Check if container exists but is stopped
   if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     if prompt_yn "Container '$CONTAINER_NAME' exists but is stopped. Start it now?" "Y"; then
-      docker start -ai "$CONTAINER_NAME"
+      docker start "$CONTAINER_NAME" >/dev/null
+      log "Container started in background."
+      printf 'You can view logs with: docker logs -f %s\n' "$CONTAINER_NAME"
       return
     fi
     if prompt_yn "Remove existing container (data volume preserved)?" "Y"; then
-      docker rm "$CONTAINER_NAME"
+      docker rm "$CONTAINER_NAME" >/dev/null
     else
       return
     fi
   fi
 
-  log "Starting interactive setup. Follow the prompts to generate your ss:// link."
-  docker run -it --name "$CONTAINER_NAME" \
-    -p "$HOST_DNS_PORT":53/udp \
-    -v "$DATA_VOLUME":/data \
-    "$IMAGE_NAME"
+  # Check if config already exists in the volume
+  local config_exists=false
+  if docker run --rm -v "$DATA_VOLUME":/data "$IMAGE_NAME" test -f /data/config/settings.env 2>/dev/null; then
+    config_exists=true
+  fi
+
+  if [ "$config_exists" = true ]; then
+    log "Found existing configuration in data volume."
+    if prompt_yn "Use existing configuration and start server?" "Y"; then
+      start_container_detached
+      return
+    fi
+  fi
+
+  # Run interactive setup (SETUP_ONLY mode - exits after saving config)
+  log "Starting interactive setup. Follow the prompts to configure your server."
+  if [ "$redirect_tty" = true ]; then
+    docker run -it --rm \
+      -v "$DATA_VOLUME":/data \
+      -e SETUP_ONLY=true \
+      "$IMAGE_NAME" </dev/tty >/dev/tty 2>/dev/tty
+  else
+    docker run -it --rm \
+      -v "$DATA_VOLUME":/data \
+      -e SETUP_ONLY=true \
+      "$IMAGE_NAME"
+  fi
+
+  # Check if setup completed successfully (config file exists)
+  if ! docker run --rm -v "$DATA_VOLUME":/data "$IMAGE_NAME" test -f /data/config/settings.env 2>/dev/null; then
+    warn "Setup did not complete. No configuration saved."
+    return
+  fi
+
+  # Start the actual server in detached mode
+  start_container_detached
 }
 
 print_noninteractive_instructions() {
