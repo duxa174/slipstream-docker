@@ -29,7 +29,7 @@ require_root() {
 
 require_script_deps() {
   local missing=()
-  for dep in curl git; do
+  for dep in curl; do
     if ! command -v "$dep" >/dev/null 2>&1; then
       missing+=("$dep")
     fi
@@ -230,6 +230,32 @@ install_docker_suse() {
 install_docker_alpine() {
   log "Installing Docker Engine (apk)"
   apk add --no-cache docker docker-cli-compose
+}
+
+install_git() {
+  case "$OS_FAMILY" in
+    debian) apt-get update && apt-get install -y git ;;
+    fedora) dnf -y install git ;;
+    rhel)
+      if command -v dnf >/dev/null 2>&1; then
+        dnf -y install git
+      else
+        yum -y install git
+      fi
+      ;;
+    arch) pacman -Sy --noconfirm git ;;
+    suse) zypper install -y git ;;
+    alpine) apk add --no-cache git ;;
+    *) die "Unsupported Linux distribution. Please install git manually." ;;
+  esac
+}
+
+ensure_git() {
+  if command -v git >/dev/null 2>&1; then
+    return
+  fi
+  log "Git is missing. Installing it now..."
+  install_git
 }
 
 install_docker() {
@@ -540,11 +566,12 @@ main() {
   require_script_deps
   setup_prompt_fd
 
+  detect_os
+  ensure_git
+
   detect_repo_dir
   cd "$REPO_DIR"
   ensure_submodule
-
-  detect_os
 
   if ! command -v docker >/dev/null 2>&1; then
     if prompt_yn "Docker Engine is missing. Install it now?" "Y"; then
