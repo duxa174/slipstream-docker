@@ -175,6 +175,7 @@ RESOLVER="$RESOLVER"
 SERVER_IP="$SERVER_IP"
 SS_PASSWORD="$SS_PASSWORD"
 SS_METHOD="$SS_METHOD"
+KEEP_ALIVE_INTERVAL="$KEEP_ALIVE_INTERVAL"
 CERT_SHA256="$CERT_SHA256"
 CERT_PATH="$CERT_PATH"
 KEY_PATH="$KEY_PATH"
@@ -212,6 +213,7 @@ Generated on: $(date)
 Domain:      $DOMAIN
 Password:    $SS_PASSWORD
 Method:      $SS_METHOD
+Keep Alive:  $KEEP_ALIVE_INTERVAL
 Mode:        $([ "$MODE" = "recursive" ] && echo "Recursive (via $RESOLVER)" || echo "Authoritative ($SERVER_IP)")
 Cert SHA256: $CERT_SHA256
 

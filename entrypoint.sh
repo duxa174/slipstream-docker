@@ -10,6 +10,7 @@ source /app/config.sh
 SS_METHOD="${SS_METHOD:-chacha20-ietf-poly1305}"
 SS_PORT="7749"
 DNS_PORT="53"
+KEEP_ALIVE_INTERVAL="${KEEP_ALIVE_INTERVAL:-25}"
 
 # Shadowsocks config file path
 SS_CONFIG="/data/config/ss-config.json"
@@ -118,12 +119,21 @@ build_plugin_opts() {
     local opts="domain=$DOMAIN;cert-sha256=$CERT_SHA256"
 
     if [ "$MODE" = "recursive" ]; then
-        opts="${opts};resolver=${RESOLVER}:53"
+        opts="${opts}"
     else
         opts="${opts};authoritative=${SERVER_IP}:53"
     fi
+    opts="${opts};keep-alive-interval=${KEEP_ALIVE_INTERVAL}"
 
     echo "$opts"
+}
+
+get_ss_server_host() {
+    if [ "$MODE" = "recursive" ]; then
+        echo "${RESOLVER:-$DOMAIN}"
+    else
+        echo "${SERVER_IP:-$DOMAIN}"
+    fi
 }
 
 # Run interactive wizard
@@ -250,6 +260,7 @@ run_non_interactive() {
     MODE="${MODE:-recursive}"
     RESOLVER="${RESOLVER:-8.8.8.8}"
     SS_PASSWORD="${SS_PASSWORD:-$(generate_password)}"
+    KEEP_ALIVE_INTERVAL="${KEEP_ALIVE_INTERVAL:-25}"
 
     # Validate mode-specific requirements
     if [ "$MODE" = "authoritative" ] && [ -z "$SERVER_IP" ]; then
@@ -323,7 +334,8 @@ main() {
     # If setup-only mode, emit client config and exit after saving config
     if is_setup_only; then
         PLUGIN_OPTS=$(build_plugin_opts)
-        SS_URL=$(generate_ss_url "$SS_METHOD" "$SS_PASSWORD" "$DOMAIN" "$DNS_PORT" "$PLUGIN_OPTS" "Slipstream-$DOMAIN")
+        SS_SERVER_HOST="$(get_ss_server_host)"
+        SS_URL=$(generate_ss_url "$SS_METHOD" "$SS_PASSWORD" "$SS_SERVER_HOST" "$DNS_PORT" "$PLUGIN_OPTS" "Slipstream-$DOMAIN")
         save_client_config "$SS_URL" "$PLUGIN_OPTS"
         print_client_config "$SS_URL" "$PLUGIN_OPTS"
         print_success "Configuration saved. Container will now exit."
@@ -352,7 +364,8 @@ main() {
     PLUGIN_OPTS=$(build_plugin_opts)
 
     # Generate ss:// URL
-    SS_URL=$(generate_ss_url "$SS_METHOD" "$SS_PASSWORD" "$DOMAIN" "$DNS_PORT" "$PLUGIN_OPTS" "Slipstream-$DOMAIN")
+    SS_SERVER_HOST="$(get_ss_server_host)"
+    SS_URL=$(generate_ss_url "$SS_METHOD" "$SS_PASSWORD" "$SS_SERVER_HOST" "$DNS_PORT" "$PLUGIN_OPTS" "Slipstream-$DOMAIN")
 
     # Save and display client configuration
     save_client_config "$SS_URL" "$PLUGIN_OPTS"
